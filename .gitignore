@@ -404,3 +404,6 @@ private.key
 
 /obj/
 /bin/
+
+/obj/*
+/bin/*
