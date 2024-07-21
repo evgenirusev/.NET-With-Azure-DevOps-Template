@@ -2,18 +2,21 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Azure.Identity;
 using Azure.Storage.Blobs;
-using Microsoft.Azure.KeyVault;
-using Microsoft.Azure.Services.AppAuthentication;
-using Microsoft.Extensions.Configuration.AzureKeyVault;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Add appsettings.json
+builder.Configuration
+    .SetBasePath(Directory.GetCurrentDirectory())
+    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+    .AddEnvironmentVariables();
+
 // Configuration for Azure Key Vault
-var azureServiceTokenProvider = new AzureServiceTokenProvider();
-var keyVaultClient =
-    new KeyVaultClient(new KeyVaultClient.AuthenticationCallback(azureServiceTokenProvider.KeyVaultTokenCallback));
-builder.Configuration.AddAzureKeyVault($"https://{builder.Configuration["KeyVaultName"]}.vault.azure.net/",
-    keyVaultClient, new DefaultKeyVaultSecretManager());
+// var azureServiceTokenProvider = new AzureServiceTokenProvider();
+// var keyVaultClient =
+//     new KeyVaultClient(new KeyVaultClient.AuthenticationCallback(azureServiceTokenProvider.KeyVaultTokenCallback));
+// builder.Configuration.AddAzureKeyVault($"https://{builder.Configuration["KeyVaultName"]}.vault.azure.net/",
+//     keyVaultClient, new DefaultKeyVaultSecretManager());
 
 // Configure SQL Database context
 var sqlConnectionString = builder.Configuration["SqlConnectionString"];
@@ -45,19 +48,19 @@ app.MapPost("/demo-endpoint", async () =>
         var blobClient = blobServiceClient
             .GetBlobContainerClient("demo-container")
             .GetBlobClient("demo-blob");
-
+        
         // Upload content to the blob
         var content = "This is a demo content";
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
         await blobClient.UploadAsync(stream, true);
-
+        
         // Create a new entity
         var entity = new FileEntity
         {
             FileName = "demo-blob",
             BlobUrl = blobClient.Uri.ToString()
         };
-
+        
         // Save the entity in the database
         var dbContext = builder.Services.BuildServiceProvider().GetRequiredService<ExampleDbContext>();
         
