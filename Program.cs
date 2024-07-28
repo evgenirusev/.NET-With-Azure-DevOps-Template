@@ -1,7 +1,8 @@
 using System.Text;
+using Azure;
 using Microsoft.EntityFrameworkCore;
-using Azure.Identity;
 using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -11,21 +12,13 @@ builder.Configuration
     .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
     .AddEnvironmentVariables();
 
-// Configuration for Azure Key Vault
-// var azureServiceTokenProvider = new AzureServiceTokenProvider();
-// var keyVaultClient =
-//     new KeyVaultClient(new KeyVaultClient.AuthenticationCallback(azureServiceTokenProvider.KeyVaultTokenCallback));
-// builder.Configuration.AddAzureKeyVault($"https://{builder.Configuration["KeyVaultName"]}.vault.azure.net/",
-//     keyVaultClient, new DefaultKeyVaultSecretManager());
-
 // Configure SQL Database context
-var sqlConnectionString = builder.Configuration["SqlConnectionString"];
+var sqlConnectionString = builder.Configuration["SqlDBConnectionString"];
 builder.Services.AddDbContext<ExampleDbContext>(options =>
     options.UseSqlServer(sqlConnectionString));
 
 // Configure Azure Blob Service Client
-var blobServiceClient =
-    new BlobServiceClient(new Uri(builder.Configuration["BlobServiceEndpoint"]), new DefaultAzureCredential());
+var blobServiceClient = new BlobServiceClient(builder.Configuration["StorageAccountConnectionString"]);
 builder.Services.AddSingleton(blobServiceClient);
 
 builder.Services.AddEndpointsApiExplorer();
@@ -33,37 +26,43 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+app.UseSwagger();
+app.UseSwaggerUI();
 
 app.UseHttpsRedirection();
 
 app.MapPost("/demo-endpoint", async () =>
     {
+        var containerClient = blobServiceClient.GetBlobContainerClient("demo-container");
+
+        // Check if the container exists, if not create it
+        try
+        {
+            await containerClient.CreateIfNotExistsAsync(PublicAccessType.Blob);
+        }
+        catch (RequestFailedException ex) when (ex.ErrorCode == BlobErrorCode.ContainerAlreadyExists)
+        {
+            // Container already exists, no need to do anything
+        }
+
         // Create a blob client
-        var blobClient = blobServiceClient
-            .GetBlobContainerClient("demo-container")
-            .GetBlobClient("demo-blob");
-        
+        var blobClient = containerClient.GetBlobClient("demo-blob");
+
         // Upload content to the blob
         var content = "This is a demo content";
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
         await blobClient.UploadAsync(stream, true);
-        
+
         // Create a new entity
         var entity = new FileEntity
         {
             FileName = "demo-blob",
             BlobUrl = blobClient.Uri.ToString()
         };
-        
+
         // Save the entity in the database
         var dbContext = builder.Services.BuildServiceProvider().GetRequiredService<ExampleDbContext>();
-        
+
         await dbContext.FileEntities.AddAsync(entity);
         await dbContext.SaveChangesAsync();
 
